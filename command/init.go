@@ -541,15 +541,38 @@ func (c *InitCommand) getProviders(earlyConfig *earlyconfig.Config, state *state
 			}
 		},
 		FetchPackageSuccess: func(provider addrs.Provider, version getproviders.Version, localDir string, authResult *getproviders.PackageAuthenticationResult) {
-			var warning string
+			var (
+				keyID   string
+				warning string
+			)
 			if authResult != nil {
+				if authResult.ThirdPartySigned() {
+					keyID = authResult.KeyID
+				}
 				warning = authResult.Warning
+			}
+			if keyID != "" {
+				keyID = c.Colorize().Color(fmt.Sprintf(" [reset][bold]%s[reset]", keyID))
 			}
 			if warning != "" {
 				warning = c.Colorize().Color(fmt.Sprintf("\n  [reset][yellow]Warning: %s[reset]", warning))
 			}
 
-			c.Ui.Info(fmt.Sprintf("- Installed %s v%s (%s)%s", provider.ForDisplay(), version, authResult, warning))
+			c.Ui.Info(fmt.Sprintf("- Installed %s v%s (%s%s)%s", provider.ForDisplay(), version, authResult, keyID, warning))
+		},
+		ProvidersFetched: func(authResults map[addrs.Provider]*getproviders.PackageAuthenticationResult) {
+			thirdPartySigned := false
+			for _, authResult := range authResults {
+				if authResult.ThirdPartySigned() {
+					thirdPartySigned = true
+					break
+				}
+			}
+			if thirdPartySigned {
+				c.Ui.Info(fmt.Sprintf("\nPartner and community providers are now signed by their developers." +
+					"\nIf you'd like to know more about provider signing, you can read about it here: " +
+					"https://www.terraform.io/docs/signing.html"))
+			}
 		},
 	}
 
