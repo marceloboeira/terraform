@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log"
-	"os"
 	"sync"
 
 	"github.com/zclconf/go-cty/cty"
@@ -47,6 +46,10 @@ type GRPCProvider struct {
 	// TestServer contains a grpc.Server to close when the GRPCProvider is being
 	// used in an end to end test of a provider.
 	TestServer *grpc.Server
+
+	// Unmanaged marks this provider as unmanaged, meaning its process
+	// lifecycle should not be controlled by Terraform.
+	Unmanaged bool
 
 	// Proto client use to make the grpc service calls.
 	client proto.ProviderClient
@@ -611,22 +614,13 @@ func (p *GRPCProvider) Close() error {
 		return nil
 	}
 
-	if os.Getenv("TF_PROVIDER_SOFT_STOP") != "" {
-		log.Println("[DEBUG] detected we want a soft stop of providers")
-		// TODO: ideally, we'd gate this on the provider, so only the
-		// provider the user specifies exhibits this behavior, and the
-		// rest get the usual behavior. Unfortunately, we don't
-		// actually have access at this point to the terraform.Addr of
-		// the provider we're talking to, so we have to just have this
-		// behavior for everyone.
-		c, err := p.PluginClient.Client()
-		if err != nil {
-			log.Println("[ERROR] can't obtain client for provider, killing process instead of server")
-		} else {
-			log.Println("[DEBUG] calling Stop instead of Kill on provider")
-			return c.Close()
+	/*
+		if p.Unmanaged {
+			log.Println("[DEBUG] unmanaged provider, not killing")
+			return nil
 		}
-	}
+	*/
+
 	p.PluginClient.Kill()
 	return nil
 }

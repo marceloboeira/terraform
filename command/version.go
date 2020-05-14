@@ -55,7 +55,11 @@ func (c *VersionCommand) Run(args []string) int {
 	// Generally-speaking this is a best-effort thing that will give us a good
 	// result in the usual case where the user successfully ran "terraform init"
 	// and then hit a problem running _another_ command.
-	providerInstaller := c.providerInstaller()
+	providerInstaller, err := c.providerInstaller()
+	if err != nil {
+		c.Ui.Error(err.Error())
+		return 1
+	}
 	providerSelections, err := providerInstaller.SelectedPackages()
 	var pluginVersions []string
 	if err != nil {

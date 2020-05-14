@@ -1,5 +1,7 @@
 module github.com/hashicorp/terraform
 
+replace github.com/hashicorp/go-plugin v1.2.2 => ../go-plugin
+
 require (
 	cloud.google.com/go v0.45.1
 	github.com/Azure/azure-sdk-for-go v36.2.0+incompatible

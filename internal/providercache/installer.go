@@ -41,6 +41,8 @@ type Installer struct {
 	// namespace, which we use for providers that are built in to Terraform
 	// and thus do not need any separate installation step.
 	builtInProviderTypes []string
+
+	unmanagedProviderTypes map[addrs.Provider]struct{}
 }
 
 // NewInstaller constructs and returns a new installer with the given target
@@ -92,6 +94,10 @@ func (i *Installer) SetGlobalCacheDir(cacheDir *Dir) {
 // method.
 func (i *Installer) SetBuiltInProviderTypes(types []string) {
 	i.builtInProviderTypes = types
+}
+
+func (i *Installer) SetUnmanagedProviderTypes(types map[addrs.Provider]struct{}) {
+	i.unmanagedProviderTypes = types
 }
 
 // EnsureProviderVersions compares the given provider requirements with what
@@ -171,6 +177,9 @@ MightNeedProvider:
 					cb(provider, err)
 				}
 			}
+			continue
+		}
+		if _, ok := i.unmanagedProviderTypes[provider]; ok {
 			continue
 		}
 		acceptableVersions := versions.MeetingConstraints(versionConstraints)

@@ -40,7 +40,7 @@ var enableProviderAutoMTLS = os.Getenv("TF_DISABLE_PLUGIN_TLS") == ""
 // because objects inside contain caches that must be maintained properly.
 // Because this method wraps a result from providerLocalCacheDir, that
 // limitation applies also to results from that method.
-func (m *Meta) providerInstaller() *providercache.Installer {
+func (m *Meta) providerInstaller() (*providercache.Installer, error) {
 	return m.providerInstallerCustomSource(m.providerInstallSource())
 }
 
@@ -56,7 +56,7 @@ func (m *Meta) providerInstaller() *providercache.Installer {
 // during EnsureProviderVersions. A caller that doesn't call
 // EnsureProviderVersions (anything other than "terraform init") can safely
 // just use the providerInstaller method unconditionally.
-func (m *Meta) providerInstallerCustomSource(source getproviders.Source) *providercache.Installer {
+func (m *Meta) providerInstallerCustomSource(source getproviders.Source) (*providercache.Installer, error) {
 	targetDir := m.providerLocalCacheDir()
 	globalCacheDir := m.providerGlobalCacheDir()
 	inst := providercache.NewInstaller(targetDir, source)
@@ -68,7 +68,20 @@ func (m *Meta) providerInstallerCustomSource(source getproviders.Source) *provid
 		builtinProviderTypes = append(builtinProviderTypes, ty)
 	}
 	inst.SetBuiltInProviderTypes(builtinProviderTypes)
-	return inst
+	unmanagedProviderTypes := map[addrs.Provider]struct{}{}
+	configs, err := m.unmanagedProviderConfigs()
+	if err != nil {
+		return nil, err
+	}
+	for ty := range configs {
+		addr, diags := addrs.ParseProviderSourceString(ty)
+		if diags.HasErrors() {
+			return inst, diags.Err()
+		}
+		unmanagedProviderTypes[addr] = struct{}{}
+	}
+	inst.SetUnmanagedProviderTypes(unmanagedProviderTypes)
+	return inst, nil
 }
 
 // providerCustomLocalDirectorySource produces a provider source that consults
@@ -166,7 +179,10 @@ func (m *Meta) providerFactories() (map[addrs.Provider]providers.Factory, error)
 	// providerInstallerCustomSource here because we're only using this
 	// installer for its SelectedPackages method, which does not consult
 	// any provider sources.
-	inst := m.providerInstaller()
+	inst, err := m.providerInstaller()
+	if err != nil {
+		return nil, err
+	}
 	selected, err := inst.SelectedPackages()
 	if err != nil {
 		return nil, fmt.Errorf("failed to recall provider packages selected by earlier 'terraform init': %s", err)
@@ -195,11 +211,16 @@ func (m *Meta) internalProviders() map[string]providers.Factory {
 	}
 }
 
+func (m *Meta) unmanagedProviderConfigs() (map[string]reattachConfig, error) {
+	return parseReattachFromEnv(os.Getenv("TF_PROVIDER_REATTACH"))
+}
+
 type reattachConfig struct {
 	protocol     plugin.Protocol
 	addr         net.Addr
 	pid          int
 	protoVersion int
+	test         bool
 }
 
 func (r reattachConfig) Set() bool {
@@ -241,7 +262,7 @@ func parseReattachFromEnv(env string) (map[string]reattachConfig, error) {
 		}
 		provider := kv[0]
 		pieces := strings.Split(kv[1], "|")
-		if len(pieces) < 5 {
+		if len(pieces) < 6 {
 			return nil, fmt.Errorf("invalid reattach config format for %q", kv[0])
 		}
 		protoStr := pieces[0]
@@ -249,6 +270,7 @@ func parseReattachFromEnv(env string) (map[string]reattachConfig, error) {
 		netAddr := pieces[2]
 		rpcType := pieces[3]
 		pidStr := pieces[4]
+		test := pieces[5] == "test"
 		var addr net.Addr
 		var err error
 		switch netType {
@@ -278,6 +300,7 @@ func parseReattachFromEnv(env string) (map[string]reattachConfig, error) {
 			addr:         addr,
 			pid:          pid,
 			protoVersion: protoVersion,
+			test:         test,
 		}
 	}
 	return resp, nil
@@ -307,6 +330,7 @@ func providerFactory(meta *providercache.CachedProvider) providers.Factory {
 			HandshakeConfig:  tfplugin.Handshake,
 			Logger:           logger,
 			AllowedProtocols: []plugin.Protocol{plugin.ProtocolGRPC},
+			Managed:          true,
 		}
 
 		// if we have reattach information for this provider, we want
@@ -317,12 +341,21 @@ func providerFactory(meta *providercache.CachedProvider) providers.Factory {
 				Protocol: reattach.protocol,
 				Addr:     reattach.addr,
 				Pid:      reattach.pid,
+				Test:     reattach.test,
 			}
 			if plugins, ok := tfplugin.VersionedPlugins[reattach.protoVersion]; !ok {
 				return nil, fmt.Errorf("unknown protocol version %d in reattach config for %q", reattach.protoVersion, meta.Provider.ForDisplay())
 			} else {
 				config.Plugins = plugins
 			}
+
+			// when shutting down providers by stopping the server,
+			// we shouldn't consider the client "managed", as
+			// go-plugin will then try to kill the process at the
+			// end of Terraform's run.  So we only set
+			// config.Managed to true if someone else isn't
+			// managing the process.
+			config.Managed = false
 		} else {
 			config.Cmd = exec.Command(meta.ExecutableFile)
 			// we can only use AutoMTLS if we're not using reattach
@@ -333,15 +366,6 @@ func providerFactory(meta *providercache.CachedProvider) providers.Factory {
 			// set and to use the plugins for the protocol version
 			// passed in.
 			config.VersionedPlugins = tfplugin.VersionedPlugins
-		}
-
-		// when shutting down providers by stopping the server, we
-		// shouldn't consider the client "managed", as go-plugin will
-		// then try to kill the process at the end of Terraform's run.
-		// So we only set config.Managed to true if the soft stop
-		// environment variable isn't set.
-		if os.Getenv("TF_PROVIDER_SOFT_STOP") == "" {
-			config.Managed = true
 		}
 
 		client := plugin.NewClient(config)
@@ -358,6 +382,13 @@ func providerFactory(meta *providercache.CachedProvider) providers.Factory {
 		// store the client so that the plugin can kill the child process
 		p := raw.(*tfplugin.GRPCProvider)
 		p.PluginClient = client
+
+		if reattach, ok := reattachConfigs[meta.Provider.ForDisplay()]; ok && reattach.Set() {
+			// by setting the GRPCProvider's Unmanaged property, we
+			// tell Terraform to not try to control the process
+			// lifecycle, as it's not Terraform's job anymore.
+			p.Unmanaged = true
+		}
 		return p, nil
 	}
 }
