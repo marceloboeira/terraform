@@ -36,6 +36,7 @@ func (s MultiSource) AvailableVersions(provider addrs.Provider) (VersionList, er
 	// We will return the union of all versions reported by the nested
 	// sources that have matching patterns that accept the given provider.
 	vs := make(map[Version]struct{})
+	var registryError bool
 	for _, selector := range s {
 		if !selector.CanHandleProvider(provider) {
 			continue // doesn't match the given patterns
@@ -43,7 +44,10 @@ func (s MultiSource) AvailableVersions(provider addrs.Provider) (VersionList, er
 		thisSourceVersions, err := selector.Source.AvailableVersions(provider)
 		switch err.(type) {
 		case nil:
-			// okay
+		// okay
+		case ErrRegistryProviderNotKnown:
+			registryError = true
+			continue // ignore, then
 		case ErrProviderNotKnown:
 			continue // ignore, then
 		default:
@@ -55,7 +59,11 @@ func (s MultiSource) AvailableVersions(provider addrs.Provider) (VersionList, er
 	}
 
 	if len(vs) == 0 {
-		return nil, ErrProviderNotKnown{provider}
+		if registryError {
+			return nil, ErrRegistryProviderNotKnown{provider}
+		} else {
+			return nil, ErrProviderNotKnown{provider, s.sourcesForProvider(provider)}
+		}
 	}
 	ret := make(VersionList, 0, len(vs))
 	for v := range vs {
@@ -70,7 +78,7 @@ func (s MultiSource) AvailableVersions(provider addrs.Provider) (VersionList, er
 // from the first selector that indicates availability of it.
 func (s MultiSource) PackageMeta(provider addrs.Provider, version Version, target Platform) (PackageMeta, error) {
 	if len(s) == 0 { // Easy case: no providers exist at all
-		return PackageMeta{}, ErrProviderNotKnown{provider}
+		return PackageMeta{}, ErrProviderNotKnown{provider, s.ForDisplay(provider)}
 	}
 
 	for _, selector := range s {
@@ -81,7 +89,7 @@ func (s MultiSource) PackageMeta(provider addrs.Provider, version Version, targe
 		switch err.(type) {
 		case nil:
 			return meta, nil
-		case ErrProviderNotKnown, ErrPlatformNotSupported:
+		case ErrProviderNotKnown, ErrRegistryProviderNotKnown, ErrPlatformNotSupported:
 			continue // ignore, then
 		default:
 			return PackageMeta{}, err
@@ -223,4 +231,25 @@ func normalizeProviderNameOrWildcard(s string) (string, error) {
 		return s, nil
 	}
 	return addrs.ParseProviderPart(s)
+}
+
+func (s MultiSource) ForDisplay(provider addrs.Provider) string {
+	ret := make([]string, len(s))
+	for i, selector := range s {
+		ret[i] = selector.Source.ForDisplay(provider)
+	}
+	return strings.Join(ret, "\n")
+}
+
+func (s MultiSource) sourcesForProvider(provider addrs.Provider) string {
+	sources := make([]string, 0)
+	for _, selector := range s {
+		if !selector.CanHandleProvider(provider) {
+			continue // doesn't match the given patterns
+		}
+		sources = append(sources, selector.Source.ForDisplay(provider))
+	}
+
+	ret := strings.Join(sources, "\n")
+	return ret
 }

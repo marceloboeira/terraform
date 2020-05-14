@@ -73,7 +73,23 @@ func (err ErrUnauthorized) Error() string {
 	}
 }
 
-// ErrProviderNotKnown is an error type used to indicate that the hostname
+// ErrProviderNotKnown is an error type used to indicate that requested provider
+// was not found in the source(s) included in the Description field. This can be
+// used to produce user-friendly error messages.
+type ErrProviderNotKnown struct {
+	Provider    addrs.Provider
+	Description string
+}
+
+func (err ErrProviderNotKnown) Error() string {
+	return fmt.Sprintf(
+		"provider %s was not found in any of the search locations:\n%s",
+		err.Provider,
+		err.Description,
+	)
+}
+
+// ErrRegistryProviderNotKnown is an error type used to indicate that the hostname
 // given in a provider address does appear to be a provider registry but that
 // registry does not know about the given provider namespace or type.
 //
@@ -85,11 +101,11 @@ func (err ErrUnauthorized) Error() string {
 // because we expect that the caller will have better context to decide what
 // hints are appropriate, e.g. by looking at the configuration given by the
 // user.
-type ErrProviderNotKnown struct {
+type ErrRegistryProviderNotKnown struct {
 	Provider addrs.Provider
 }
 
-func (err ErrProviderNotKnown) Error() string {
+func (err ErrRegistryProviderNotKnown) Error() string {
 	return fmt.Sprintf(
 		"provider registry %s does not have a provider named %s",
 		err.Provider.Hostname.ForDisplay(),
