@@ -15,6 +15,7 @@ import (
 	"time"
 
 	tfe "github.com/hashicorp/go-tfe"
+	version "github.com/hashicorp/go-version"
 	"github.com/hashicorp/terraform/backend"
 	"github.com/hashicorp/terraform/tfdiags"
 )
@@ -96,6 +97,28 @@ func (b *Remote) opPlan(stopCtx, cancelCtx context.Context, op *backend.Operatio
 				`flag or create a single empty configuration file. Otherwise, please create `+
 				`a Terraform configuration file in the path being executed and try again.`,
 		))
+	}
+
+	if len(op.Targets) != 0 {
+		currentAPIVersion, parseErr := version.NewVersion(b.client.RemoteAPIVersion())
+		desiredAPIVersion, _ := version.NewVersion("2.3")
+
+		if parseErr != nil || currentAPIVersion.LessThan(desiredAPIVersion) {
+			if parseErr != nil {
+				fmt.Printf("bad parsing\n")
+				fmt.Printf("the version is: %s\n", b.client.RemoteAPIVersion())
+			}
+
+			diags = diags.Append(tfdiags.Sourceless(
+				tfdiags.Error,
+				"Resource targeting is not supported",
+				fmt.Sprintf(
+					`The host %s does not support the -target option for `+
+						`remote plans.`,
+					b.hostname,
+				),
+			))
+		}
 	}
 
 	// Return if there are any errors.
