@@ -9,7 +9,7 @@ and document some of the more complicated aspects of resource destruction.
 
 The graph diagrams here will continue to use the inverted graph structure used
 internally by Terraform, where edges represent dependencies rather than order
-of operations. 
+of operations.
 
 ## Simple Resource Creation
 

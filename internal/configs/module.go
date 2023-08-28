@@ -10,6 +10,7 @@ import (
 
 	"github.com/hashicorp/terraform/internal/addrs"
 	"github.com/hashicorp/terraform/internal/experiments"
+	"github.com/hashicorp/terraform/internal/getproviders"
 
 	tfversion "github.com/hashicorp/terraform/version"
 )
@@ -78,6 +79,7 @@ type File struct {
 	ProviderConfigs   []*Provider
 	ProviderMetas     []*ProviderMeta
 	RequiredProviders []*RequiredProviders
+	RequiredPlatforms []*getproviders.Platform
 
 	Variables []*Variable
 	Locals    []*Local

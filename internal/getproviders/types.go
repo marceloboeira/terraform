@@ -168,6 +168,25 @@ var CurrentPlatform = Platform{
 	Arch: runtime.GOARCH,
 }
 
+// AllSupportedPlatforms is a list of all supported terraform platforms.
+
+// When locking providers to run terraform remotely it is possible to
+// set the --all-platforms flag that sources the list from this variable
+// var AllSupportedPlatforms = []Platform{}{
+// 	Platform{OS: "darwin", Arch: "amd64"},
+// 	Platform{OS: "darwin", Arch: "arm"},
+// 	Platform{OS: "darwin", Arch: "arm64"},
+// 	Platform{OS: "freebsd", Arch: "386"},
+// 	Platform{OS: "freebsd", Arch: "amd64"},
+// 	Platform{OS: "freebsd", Arch: "arm"},
+// 	Platform{OS: "linux", Arch: "386"},
+// 	Platform{OS: "linux", Arch: "amd64"},
+// 	Platform{OS: "linux", Arch: "arm"},
+// 	Platform{OS: "linux", Arch: "arm64"},
+// 	Platform{OS: "windows", Arch: "386"},
+// 	Platform{OS: "windows", Arch: "amd64"},
+// }
+
 // PackageMeta represents the metadata related to a particular downloadable
 // provider package targeting a single platform.
 //
@@ -290,7 +309,7 @@ type PackageLocation interface {
 
 // PackageLocalArchive is the location of a provider distribution archive file
 // in the local filesystem. Its value is a local filesystem path using the
-// syntax understood by Go's standard path/filepath package on the operating
+// syntax understood by Go's standard path/filepath package on the operatingh
 // system where Terraform is running.
 type PackageLocalArchive string
 

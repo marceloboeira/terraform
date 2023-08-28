@@ -4,7 +4,11 @@
 package configs
 
 import (
+	"fmt"
+
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/terraform/internal/getproviders"
+	"github.com/hashicorp/terraform/internal/tfdiags"
 )
 
 // LoadConfigFile reads the file at the given path and parses it as a config
@@ -69,6 +73,10 @@ func (p *Parser) loadConfigFile(path string, override bool) (*File, hcl.Diagnost
 	content, contentDiags := body.Content(configFileSchema)
 	diags = append(diags, contentDiags...)
 
+	var pltDiags hcl.Diagnostics
+	file.RequiredPlatforms, reqDiags = sniffPlatformRequirements(body)
+	diags = append(diags, pltDiags...)
+
 	for _, block := range content.Blocks {
 		switch block.Type {
 
@@ -76,44 +84,39 @@ func (p *Parser) loadConfigFile(path string, override bool) (*File, hcl.Diagnost
 			content, contentDiags := block.Body.Content(terraformBlockSchema)
 			diags = append(diags, contentDiags...)
 
-			// We ignore the "terraform_version", "language" and "experiments"
+			// We ignore the "terraform_version", "require_platforms",
+			// "language" and "experiments"
 			// attributes here because sniffCoreVersionRequirements and
 			// sniffActiveExperiments already dealt with those above.
 
 			for _, innerBlock := range content.Blocks {
 				switch innerBlock.Type {
-
 				case "backend":
 					backendCfg, cfgDiags := decodeBackendBlock(innerBlock)
 					diags = append(diags, cfgDiags...)
 					if backendCfg != nil {
 						file.Backends = append(file.Backends, backendCfg)
 					}
-
 				case "cloud":
 					cloudCfg, cfgDiags := decodeCloudBlock(innerBlock)
 					diags = append(diags, cfgDiags...)
 					if cloudCfg != nil {
 						file.CloudConfigs = append(file.CloudConfigs, cloudCfg)
 					}
-
 				case "required_providers":
 					reqs, reqsDiags := decodeRequiredProvidersBlock(innerBlock)
 					diags = append(diags, reqsDiags...)
 					file.RequiredProviders = append(file.RequiredProviders, reqs)
-
 				case "provider_meta":
 					providerCfg, cfgDiags := decodeProviderMetaBlock(innerBlock)
 					diags = append(diags, cfgDiags...)
 					if providerCfg != nil {
 						file.ProviderMetas = append(file.ProviderMetas, providerCfg)
 					}
-
 				default:
 					// Should never happen because the above cases should be exhaustive
 					// for all block type names in our schema.
 					continue
-
 				}
 			}
 
@@ -123,6 +126,15 @@ func (p *Parser) loadConfigFile(path string, override bool) (*File, hcl.Diagnost
 				Severity: hcl.DiagError,
 				Summary:  "Invalid required_providers block",
 				Detail:   "A \"required_providers\" block must be nested inside a \"terraform\" block.",
+				Subject:  block.TypeRange.Ptr(),
+			})
+
+		case "required_platforms":
+			// required_platforms should be nested inside a "terraform" block
+			diags = append(diags, &hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "Invalid required_platforms block",
+				Detail:   "A \"required_platforms\" block must be nested inside a \"terraform\" block.",
 				Subject:  block.TypeRange.Ptr(),
 			})
 
@@ -240,6 +252,41 @@ func sniffCoreVersionRequirements(body hcl.Body) ([]VersionConstraint, hcl.Diagn
 	return constraints, diags
 }
 
+// sniffPlatformRequirements does minimal parsing of the given body for
+// "terraform" blocks with "required_platforms" attributes, returning the
+// requirements found.
+//
+// This is a "best effort" sort of method which will return errors only if the
+// platform is consistently wrong, but not if underlying providers do not support it
+func sniffPlatformRequirements(body hcl.Body) hcl.Diagnostics {
+	rootContent, _, diags := body.PartialContent(configFileTerraformBlockSniffRootSchema)
+
+	for _, block := range rootContent.Blocks {
+		content, _, blockDiags := block.Body.PartialContent(configFilePlataformSniffBlockSchema)
+		diags = append(diags, blockDiags...)
+
+		attr, exists := content.Attributes["required_platforms"]
+		if !exists {
+			continue
+		}
+
+		for _, input := range attr {
+			platform, err := getproviders.ParsePlatform(input)
+			if err != nil {
+				diags = diags.Append(tfdiags.Sourceless(
+					tfdiags.Error,
+					"Invalid target platform",
+					fmt.Sprintf("The string %q given in the required_platforms block is not a valid target platform: %s.", input, err),
+				))
+				continue
+			}
+			platforms = append(platforms, platform)
+		}
+	}
+
+	return diags
+}
+
 // configFileSchema is the schema for the top-level of a config file. We use
 // the low-level HCL API for this level so we can easily deal with each
 // block type separately with its own decoding logic.
@@ -299,6 +346,7 @@ var configFileSchema = &hcl.BodySchema{
 var terraformBlockSchema = &hcl.BodySchema{
 	Attributes: []hcl.AttributeSchema{
 		{Name: "required_version"},
+		{Name: "required_platforms"},
 		{Name: "experiments"},
 		{Name: "language"},
 	},
@@ -335,6 +383,15 @@ var configFileVersionSniffBlockSchema = &hcl.BodySchema{
 	Attributes: []hcl.AttributeSchema{
 		{
 			Name: "required_version",
+		},
+	},
+}
+
+// configFilePlataformSniffBlockSchema is a schema for sniffCorePlatformRequirements
+var configFilePlataformSniffBlockSchema = &hcl.BodySchema{
+	Attributes: []hcl.AttributeSchema{
+		{
+			Name: "required_platforms",
 		},
 	},
 }

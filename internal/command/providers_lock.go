@@ -65,9 +65,18 @@ func (c *ProvidersLockCommand) Run(args []string) int {
 	}
 
 	providerStrs := cmdFlags.Args()
+	config, confDiags := c.loadConfig(".")
 
+	// TODO required_platforms
+	// when required_platforms is set 
+	//   and the platform flag is NOT set then use required_platforms
+	//   and the flag is set then use the required_platforms
+	// when erquired_platforms it NOT set then act as before
 	var platforms []getproviders.Platform
 	if len(optPlatforms) == 0 {
+		// if required_platforms
+		// platforms = required_platforms			
+		// else
 		platforms = []getproviders.Platform{getproviders.CurrentPlatform}
 	} else {
 		platforms = make([]getproviders.Platform, 0, len(optPlatforms))
@@ -120,7 +129,6 @@ func (c *ProvidersLockCommand) Run(args []string) int {
 		source = getproviders.NewRegistrySource(c.Services)
 	}
 
-	config, confDiags := c.loadConfig(".")
 	diags = diags.Append(confDiags)
 	reqs, hclDiags := config.ProviderRequirements()
 	diags = diags.Append(hclDiags)

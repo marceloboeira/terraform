@@ -1,6 +1,6 @@
 # Building from Source
 
-Pre-built binaries are available for download for a variety of supported platforms through the [HashiCorp Releases website](https://releases.hashicorp.com/terraform/). 
+Pre-built binaries are available for download for a variety of supported platforms through the [HashiCorp Releases website](https://releases.hashicorp.com/terraform/).
 
 However, if you'd like to build Terraform yourself, you can do so using the Go build toolchain and the options specified in this document.
 
@@ -37,6 +37,6 @@ For the most part, the Terraform release process relies on the Go toolchain defa
 
 ### `CGO_ENABLED`
 
-One exception is the `CGO_ENABLED` option, which is set explicitly when building Terraform binaries. For most platforms, we build with `CGO_ENABLED=0` in order to produce a statically linked binary. For MacOS/Darwin operating systems, we build with `CGO_ENABLED=1` to avoid a platform-specific issue with DNS resolution. 
+One exception is the `CGO_ENABLED` option, which is set explicitly when building Terraform binaries. For most platforms, we build with `CGO_ENABLED=0` in order to produce a statically linked binary. For MacOS/Darwin operating systems, we build with `CGO_ENABLED=1` to avoid a platform-specific issue with DNS resolution.
 
 
